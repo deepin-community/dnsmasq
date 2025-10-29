@@ -1,4 +1,4 @@
-/* dnsmasq is Copyright (c) 2000-2021 Simon Kelley
+/* dnsmasq is Copyright (c) 2000-2025 Simon Kelley
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -16,7 +16,7 @@
 
 #include "dnsmasq.h"
 
-#if defined(HAVE_DNSSEC) || defined(HAVE_CRYPTOHASH)
+#if defined(HAVE_DNSSEC)
 
 /* Minimal version of nettle */
 
@@ -30,9 +30,6 @@
 #define MIN_VERSION(major, minor) ((NETTLE_VERSION_MAJOR == (major) && NETTLE_VERSION_MINOR >= (minor)) || \
 				   (NETTLE_VERSION_MAJOR > (major)))
 
-#endif /* defined(HAVE_DNSSEC) || defined(HAVE_CRYPTOHASH) */
-
-#if defined(HAVE_DNSSEC)
 #include <nettle/rsa.h>
 #include <nettle/ecdsa.h>
 #include <nettle/ecc-curve.h>
@@ -309,14 +306,14 @@ static int dnsmasq_gostdsa_verify(struct blockdata *key_data, unsigned int key_l
       mpz_init(y);
     }
     
-  mpz_import(x, 32 , 1, 1, 0, 0, p);
-  mpz_import(y, 32 , 1, 1, 0, 0, p + 32);
+  mpz_import(x, 32, -1, 1, 0, 0, p);
+  mpz_import(y, 32, -1, 1, 0, 0, p + 32);
 
   if (!ecc_point_set(gost_key, x, y))
-    return 0;
+    return 0; 
   
-  mpz_import(sig_struct->r, 32, 1, 1, 0, 0, sig);
-  mpz_import(sig_struct->s, 32, 1, 1, 0, 0, sig + 32);
+  mpz_import(sig_struct->s, 32, 1, 1, 0, 0, sig);
+  mpz_import(sig_struct->r, 32, 1, 1, 0, 0, sig + 32);
   
   return nettle_gostdsa_verify(gost_key, digest_len, digest, sig_struct);
 }
@@ -390,7 +387,12 @@ static int (*verify_func(int algo))(struct blockdata *key_data, unsigned int key
       return dnsmasq_ecdsa_verify;
       
 #if MIN_VERSION(3, 1)
-    case 15: case 16:
+    case 15:
+      return dnsmasq_eddsa_verify;
+#endif
+
+#if MIN_VERSION(3, 6)
+    case 16:
       return dnsmasq_eddsa_verify;
 #endif
     }
@@ -425,7 +427,9 @@ char *ds_digest_name(int digest)
     {
     case 1: return "sha1";
     case 2: return "sha256";
-    case 3: return "gosthash94";
+#if MIN_VERSION(3, 6)
+    case 3: return "gosthash94cp";
+#endif
     case 4: return "sha384";
     default: return NULL;
     }
@@ -444,11 +448,17 @@ char *algo_digest_name(int algo)
     case 7: return "sha1";        /* RSASHA1-NSEC3-SHA1 */
     case 8: return "sha256";      /* RSA/SHA-256 */
     case 10: return "sha512";     /* RSA/SHA-512 */
-    case 12: return "gosthash94"; /* ECC-GOST */
+#if MIN_VERSION(3, 6)
+    case 12: return "gosthash94cp"; /* ECC-GOST */ 
+#endif
     case 13: return "sha256";     /* ECDSAP256SHA256 */
     case 14: return "sha384";     /* ECDSAP384SHA384 */ 	
+#if MIN_VERSION(3, 1)
     case 15: return "null_hash";  /* ED25519 */
+#  if MIN_VERSION(3, 6)
     case 16: return "null_hash";  /* ED448 */
+#  endif
+#endif
     default: return NULL;
     }
 }
@@ -463,9 +473,6 @@ char *nsec3_digest_name(int digest)
     }
 }
 
-#endif /* defined(HAVE_DNSSEC) */
-
-#if defined(HAVE_DNSSEC) || defined(HAVE_CRYPTOHASH)
 /* Find pointer to correct hash function in nettle library */
 const struct nettle_hash *hash_find(char *name)
 {
@@ -496,4 +503,4 @@ const struct nettle_hash *hash_find(char *name)
 #endif
 }
 
-#endif /* defined(HAVE_DNSSEC) || defined(HAVE_CRYPTOHASH) */
+#endif /* defined(HAVE_DNSSEC) */
