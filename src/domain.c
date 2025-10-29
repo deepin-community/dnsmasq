@@ -1,4 +1,4 @@
-/* dnsmasq is Copyright (c) 2000-2021 Simon Kelley
+/* dnsmasq is Copyright (c) 2000-2025 Simon Kelley
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -22,12 +22,13 @@ static int match_domain(struct in_addr addr, struct cond_domain *c);
 static struct cond_domain *search_domain6(struct in6_addr *addr, struct cond_domain *c);
 static int match_domain6(struct in6_addr *addr, struct cond_domain *c);
 
-int is_name_synthetic(int flags, char *name, union all_addr *addr)
+int is_name_synthetic(int flags, char *name, union all_addr *addrp)
 {
   char *p;
   struct cond_domain *c = NULL;
   int prot = (flags & F_IPV6) ? AF_INET6 : AF_INET;
-
+  union all_addr addr;
+  
   for (c = daemon->synth_domains; c; c = c->next)
     {
       int found = 0;
@@ -74,7 +75,7 @@ int is_name_synthetic(int flags, char *name, union all_addr *addr)
 		   if (!c->is6 &&
 		      index <= ntohl(c->end.s_addr) - ntohl(c->start.s_addr))
 		    {
-		      addr->addr4.s_addr = htonl(ntohl(c->start.s_addr) + index);
+		      addr.addr4.s_addr = htonl(ntohl(c->start.s_addr) + index);
 		      found = 1;
 		    }
 		} 
@@ -86,8 +87,8 @@ int is_name_synthetic(int flags, char *name, union all_addr *addr)
 		      index <= addr6part(&c->end6) - addr6part(&c->start6))
 		    {
 		      u64 start = addr6part(&c->start6);
-		      addr->addr6 = c->start6;
-		      setaddr6part(&addr->addr6, start + index);
+		      addr.addr6 = c->start6;
+		      setaddr6part(&addr.addr6, start + index);
 		      found = 1;
 		    }
 		}
@@ -114,29 +115,18 @@ int is_name_synthetic(int flags, char *name, union all_addr *addr)
 	  
 	  *p = 0;	
 	  
-	  if (prot == AF_INET6 && strstr(tail, "--ffff-") == tail)
-	    {
-	      /* special hack for v4-mapped. */
-	      memcpy(tail, "::ffff:", 7);
-	      for (p = tail + 7; *p; p++)
-		if (*p == '-')
+	  /* swap . or : for - */
+	  for (p = tail; *p; p++)
+	    if (*p == '-')
+	      {
+		if (prot == AF_INET)
 		  *p = '.';
-	    }
-	  else
-	    {
-	      /* swap . or : for - */
-	      for (p = tail; *p; p++)
-		if (*p == '-')
-		  {
-		    if (prot == AF_INET)
-		      *p = '.';
-		    else
-		      *p = ':';
-		  }
-	    }
+		else
+		  *p = ':';
+	      }
 	  
-	  if (hostname_isequal(c->domain, p+1) && inet_pton(prot, tail, addr))
-	    found = (prot == AF_INET) ? match_domain(addr->addr4, c) : match_domain6(&addr->addr6, c);
+	  if (hostname_isequal(c->domain, p+1) && inet_pton(prot, tail, &addr))
+	    found = (prot == AF_INET) ? match_domain(addr.addr4, c) : match_domain6(&addr.addr6, c);
 	}
       
       /* restore name */
@@ -148,7 +138,12 @@ int is_name_synthetic(int flags, char *name, union all_addr *addr)
       
       
       if (found)
-	return 1;
+	{
+	  if (addrp)
+	    *addrp = addr;
+	  
+	  return 1;
+	}
     }
   
   return 0;
@@ -188,9 +183,8 @@ int is_rev_synth(int flag, union all_addr *addr, char *name)
 
    if ((flag & F_IPV6) && (c = search_domain6(&addr->addr6, daemon->synth_domains))) 
      {
-       char *p;
-       
        *name = 0;
+
        if (c->indexed)
 	 {
 	   u64 index = addr6part(&addr->addr6) - addr6part(&c->start6);
@@ -198,24 +192,17 @@ int is_rev_synth(int flag, union all_addr *addr, char *name)
 	 }
        else
 	 {
-	   if (c->prefix)
-	     strncpy(name, c->prefix, MAXDNAME - ADDRSTRLEN);
-       
-	   inet_ntop(AF_INET6, &addr->addr6, name + strlen(name), ADDRSTRLEN);
+	   int i;
+	   char frag[6];
 
-	   /* IPv6 presentation address can start with ":", but valid domain names
-	      cannot start with "-" so prepend a zero in that case. */
-	   if (!c->prefix && *name == ':')
+	   if (c->prefix)
+	     strncpy(name, c->prefix, MAXDNAME);
+	   
+	   for (i = 0; i < 16; i += 2)
 	     {
-	       *name = '0';
-	       inet_ntop(AF_INET6, &addr->addr6, name+1, ADDRSTRLEN);
+	       sprintf(frag, "%s%02x%02x",  i == 0 ? "" : "-", addr->addr6.s6_addr[i], addr->addr6.s6_addr[i+1]);
+	       strncat(name, frag, MAXDNAME);
 	     }
-	   
-	   /* V4-mapped have periods.... */
-	   for (p = name; *p; p++)
-	     if (*p == ':' || *p == '.')
-	       *p = '-';
-	   
 	 }
 
        strncat(name, ".", MAXDNAME);
@@ -230,9 +217,17 @@ int is_rev_synth(int flag, union all_addr *addr, char *name)
 
 static int match_domain(struct in_addr addr, struct cond_domain *c)
 {
-  if (!c->is6 &&
-      ntohl(addr.s_addr) >= ntohl(c->start.s_addr) &&
-      ntohl(addr.s_addr) <= ntohl(c->end.s_addr))
+  if (c->interface)
+    {
+      struct addrlist *al;
+      for (al = c->al; al; al = al->next)
+	if (!(al->flags & ADDRLIST_IPV6) &&
+	    is_same_net_prefix(addr, al->addr.addr4, al->prefixlen))
+	  return 1;
+    }
+  else if (!c->is6 &&
+	   ntohl(addr.s_addr) >= ntohl(c->start.s_addr) &&
+	   ntohl(addr.s_addr) <= ntohl(c->end.s_addr))
     return 1;
 
   return 0;
@@ -259,12 +254,21 @@ char *get_domain(struct in_addr addr)
 
 static int match_domain6(struct in6_addr *addr, struct cond_domain *c)
 {
-  u64 addrpart = addr6part(addr);
-  
-  if (c->is6)
+    
+  /* subnet from interface address. */
+  if (c->interface)
+    {
+      struct addrlist *al;
+      for (al = c->al; al; al = al->next)
+	if (al->flags & ADDRLIST_IPV6 &&
+	    is_same_net6(addr, &al->addr.addr6, al->prefixlen))
+	  return 1;
+    }
+  else if (c->is6)
     {
       if (c->prefixlen >= 64)
 	{
+	  u64 addrpart = addr6part(addr);
 	  if (is_same_net6(addr, &c->start6, 64) &&
 	      addrpart >= addr6part(&c->start6) &&
 	      addrpart <= addr6part(&c->end6))
@@ -273,7 +277,7 @@ static int match_domain6(struct in6_addr *addr, struct cond_domain *c)
       else if (is_same_net6(addr, &c->start6, c->prefixlen))
 	return 1;
     }
-
+    
   return 0;
 }
 

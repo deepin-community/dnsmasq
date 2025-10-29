@@ -1,4 +1,4 @@
-/* dnsmasq is Copyright (c) 2000-2021 Simon Kelley
+/* dnsmasq is Copyright (c) 2000-2025 Simon Kelley
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -15,15 +15,19 @@
 */
 
 #define FTABSIZ 150 /* max number of outstanding requests (default) */
-#define MAX_PROCS 20 /* max no children for TCP requests */
+#define MAX_PROCS 20 /* default max no children for TCP requests */
 #define CHILD_LIFETIME 150 /* secs 'till terminated (RFC1035 suggests > 120s) */
 #define TCP_MAX_QUERIES 100 /* Maximum number of queries per incoming TCP connection */
+#define TCP_TIMEOUT 5 /* timeout waiting to connect to an upstream server - double this for answer */
 #define TCP_BACKLOG 32  /* kernel backlog limit for TCP connections */
-#define EDNS_PKTSZ 4096 /* default max EDNS.0 UDP packet from RFC5625 */
-#define SAFE_PKTSZ 1280 /* "go anywhere" UDP packet size */
+#define EDNS_PKTSZ 1232 /* default max EDNS.0 UDP packet from from  /dnsflagday.net/2020 */
 #define KEYBLOCK_LEN 40 /* choose to minimise fragmentation when storing DNSSEC keys */
-#define DNSSEC_WORK 50 /* Max number of queries to validate one question */
+#define DNSSEC_LIMIT_WORK 40 /* Max number of queries to validate one question */
+#define DNSSEC_LIMIT_SIG_FAIL 20 /* Number of signature that can fail to validate in one answer */
+#define DNSSEC_LIMIT_CRYPTO 200 /* max no. of crypto operations to validate one query. */
+#define DNSSEC_LIMIT_NSEC3_ITERS 150 /* Max. number if iterations allowed in NSEC3 record. */
 #define TIMEOUT 10     /* drop UDP queries after TIMEOUT seconds */
+#define SMALL_PORT_RANGE 30 /* If DNS port range is smaller than this, use different allocation. */
 #define FORWARD_TEST 50 /* try all servers every 50 queries */
 #define FORWARD_TIME 20 /* or 20 seconds */
 #define UDP_TEST_TIME 60 /* How often to reset our idea of max packet size. */
@@ -58,6 +62,8 @@
 #define SOA_EXPIRY 1209600 /* SOA expiry default */
 #define LOOP_TEST_DOMAIN "test" /* domain for loop testing, "test" is reserved by RFC 2606 and won't therefore clash */
 #define LOOP_TEST_TYPE T_TXT
+#define DEFAULT_FAST_RETRY 1000 /* ms, default delay before fast retry */
+#define STALE_CACHE_EXPIRY 86400 /* 1 day in secs, default maximum expiry time for stale cache data */
  
 /* compile-time options: uncomment below to enable or do eg.
    make COPTS=-DHAVE_BROKEN_RTC
@@ -115,12 +121,13 @@ HAVE_IPSET
     define this to include the ability to selectively add resolved ip addresses
     to given ipsets.
 
+HAVE_NFTSET
+    define this to include the ability to selectively add resolved ip addresses
+    to given nftables sets.
+
 HAVE_AUTH
    define this to include the facility to act as an authoritative DNS
    server for one or more zones.
-
-HAVE_CRYPTOHASH
-   include just hash function from crypto library, but no DNSSEC.
 
 HAVE_DNSSEC
    include DNSSEC validator.
@@ -190,9 +197,8 @@ RESOLVFILE
 /* #define HAVE_IDN */
 /* #define HAVE_LIBIDN2 */
 /* #define HAVE_CONNTRACK */
-/* #define HAVE_CRYPTOHASH */
 /* #define HAVE_DNSSEC */
-
+/* #define HAVE_NFTSET */
 
 /* Default locations for important system files. */
 
@@ -356,6 +362,11 @@ HAVE_SOCKADDR_SA_LEN
 #define HAVE_INOTIFY
 #endif
 
+/* This never compiles code, it's only used by the makefile to fingerprint builds. */
+#ifdef DNSMASQ_COMPILE_FLAGS
+static char *compile_flags = DNSMASQ_COMPILE_FLAGS;
+#endif
+
 /* Define a string indicating which options are in use.
    DNSMASQ_COMPILE_OPTS is only defined in dnsmasq.c */
 
@@ -420,14 +431,14 @@ static char *compile_opts =
 "no-"
 #endif
 "ipset "
+#ifndef HAVE_NFTSET
+"no-"
+#endif
+"nftset "
 #ifndef HAVE_AUTH
 "no-"
 #endif
 "auth "
-#if !defined(HAVE_CRYPTOHASH) && !defined(HAVE_DNSSEC)
-"no-"
-#endif
-"cryptohash "
 #ifndef HAVE_DNSSEC
 "no-"
 #endif

@@ -1,3 +1,291 @@
+version 2.91
+	Fix spurious "resource limit exceeded messages". Thanks to 
+	Dominik Derigs for the bug report.
+
+	Fix out-of-bounds heap read in order_qsort().
+	We only need to order two server records on the ->serial field.
+	Literal address records are smaller and don't have
+	this field and don't need to be ordered on it.
+	To actually provoke this bug seems to need the same server-literal
+	to be repeated twice, e.g., --address=/a/1.1.1.1 --address-/a/1.1.1.1
+	which is clearly rare in the wild, but if it did exist it could
+	provoke a SIGSEGV. Thanks to Daniel Rhea for fuzzing this one.
+
+	Fix buffer overflow when configured lease-change script name
+	is too long.
+	Thanks to Daniel Rhea for finding this one.
+
+	Improve behaviour in the face of non-responsive upstream TCP DNS
+	servers. Without shorter timeouts, clients are blocked for too long
+	and fail with their own timeouts.
+
+	Set --fast-dns-retries by default when doing DNSSEC. A single
+	downstream query can trigger many upstream queries. On an
+	unreliable network, there may not be enough downstream retries
+	to ensure that all these queries complete.
+
+	Improve behaviour in the face of truncated answers to queries
+	for DNSSEC records. Getting these answers by TCP doesn't now
+	involve a faked truncated answer to the downstream client to
+	force it to move to TCP. This improves performance and robustness
+	in the face of broken clients which can't fall back to TCP.
+
+	No longer remove data from truncated upstream answers. If an
+	upstream replies with a truncated answer, but the answer has some
+	RRs included, return those RRs, rather than returning and
+	empty answer.
+
+	Fix handling of EDNS0 UDP packet sizes.
+	When talking upstream we always add a pseudo header, and set the
+        UDP packet size to --edns-packet-max. Answering queries from
+	downstream, we get the answer (either from upstream or local
+	data) If local data won't fit the advertised size (or 512 if
+	there's not an EDNS0 header) return truncated. If upstream
+        returns truncated, do likewise. If upstream is OK, but the
+	answer is too big for downstream, truncate the answer.
+
+	Modify the behaviour of --synth-domain for IPv6.
+	When deriving a domain name from an IPv6 address, an address
+	such as 1234:: would become 1234--.example.com, which is
+	not legal in IDNA2008. Stop using the :: compression method,
+	so 1234:: becomes
+	1234-0000-0000-0000-0000-0000-0000-0000.example.com
+
+	Fix broken dhcp-relay on *BSD. Thanks to Harold for finding
+	this problem.
+
+	Add --dhcp-option-pxe config. This acts almost exactly like
+	--dhcp-option except that the defined option is only sent when
+	replying to PXE clients. More importantly, these options are sent
+	in reply PXE clients when dnsmasq in acting in PXE proxy mode. In
+	PXE proxy mode, the set of options sent is defined by the PXE standard
+	and the normal set of options is not sent. This config allows arbitrary
+	options in PXE-proxy replies. A typical use-case is to send option
+	175 to iPXE. Thanks to Jason Berry for finding the requirement for
+	this.
+
+	Support PXE proxy-DHCP and DHCP-relay at the same time.
+        When using PXE proxy-DHCP, dnsmasq supplies PXE information to
+        the client, which also talks to another "normal" DHCP server
+        for address allocation and similar. The normal DHCP server may
+        be on the local network, but it may also be remote, and accessed via
+        a DHCP relay. This change allows dnsmasq to act as both a
+        PXE proxy-DHCP server AND a DHCP relay for the same network.
+
+	Fix erroneous "DNSSEC validated" state with non-DNSSEC
+	upstream servers.  Thanks to Dominik Derigs for the bug report.
+
+	Handle queries with EDNS client subnet fields better. If dnsmasq
+	is configured to add an EDNS client subnet to a query, it is careful
+	to suppress use of the cache, since a cached answer may not be valid
+	for a query with a different client subnet. Extend this behaviour
+	to queries which arrive a dnsmasq already carrying an EDNS client
+	subnet.
+
+	Handle DS queries to auth zones. When dnsmasq is configured to
+	act as an authoritative server and has an authoritative zone
+	configured, and receives a query for that zone _as_forwarder_
+	it answers the query directly rather than forwarding it. This
+	doesn't affect the answer, but it saves dnsmasq forwarding the
+	query to the recursor upstream, which then bounces it back to dnsmasq
+	in auth mode. The exception should be when the query is for the root
+	of zone, for a DS RR. The answer to that has to come from the parent,
+	via the recursor, and will typically be a proof-of-non-existence
+	since dnsmasq doesn't support signed zones. This patch suppresses
+	local answers and forces forwarding to the upstream recursor for such
+	queries. It stops breakage when a DNSSEC validating client makes
+	queries to dnsmasq acting as forwarder for a zone for which it is
+	authoritative.
+
+	Implement "DNS-0x20 encoding", for extra protection against
+	reply-spoof attacks. Since DNS queries are case-insensitive,
+	it's possible to randomly flip the case of letters in a query
+	and still get the correct answer back.
+	This adds an extra dimension for a cache-poisoning attacker
+	to guess when sending replies in-the-blind since it's expected
+	that the legitimate answer will have the same  pattern of upper
+	and lower case as the query, so any replies which don't can be
+	ignored as malicious. The amount of extra entropy clearly depends
+	on the number of a-z and A-Z characters in the query, and this
+	implementation puts a hard limit of 32 bits to make resource
+	allocation easy. This about doubles entropy over the standard
+	random ID and random port combination. This technique can interact
+	badly with rare broken DNS servers which don't preserve the case
+	of the query in their reply. The first time a reply is returned
+	which matches the query in all respects except case, a warning
+	will be logged. In this release, 0x020-encoding is default-off
+	and must be explicitly enabled with --do-0x20-encoding. In future
+	releases it may default on. You can avoid a future release
+	changing the behaviour of an installation with --no-x20-encode.
+	
+	Fix a long-standing problem when two queries which are identical
+	in every repect _except_ case, get combined by dnsmasq. If
+	dnsmasq gets eg, two queries for example.com and Example.com
+	in quick succession it will get the answer for example.com from
+	upstream and send that answer to both requestors. This means that
+	the query for Example.com will get an answer for example.com, and
+	in the modern DNS, that answer may not be accepted.
+
+	
+version 2.90
+	Fix reversion in --rev-server introduced in 2.88 which
+	caused breakage if the prefix length is not exactly divisible
+	by 8 (IPv4) or 4 (IPv6).
+
+	Fix possible SEGV when there server(s) for a particular
+	domain are configured, but no server which is not qualified
+	for a particular domain. Thanks to Daniel Danzberger for
+	spotting this bug.
+
+	Set the default maximum DNS UDP packet sice to 1232. This
+	has been the recommended value since 2020 because it's the
+	largest value that avoid fragmentation, and fragmentation
+	is just not reliable on the modern internet, especially
+	for IPv6. It's still possible to override this with
+	--edns-packet-max for special circumstances.
+
+	Add --no-dhcpv4-interface and --no-dhcpv6-interface for
+	better control over which inetrfaces are providing DHCP service.
+
+	Fix issue with stale caching: After replying with stale data,
+	dnsmasq sends the query upstream to refresh the cache asynchronously
+	and sometimes sends the wrong packet: packet length can be wrong,
+	and if an EDE marking stale data is added to the answer that can
+	end up in the query also. This bug only seems to cause problems
+	when the usptream server is a DOH/DOT proxy. Thanks to Justin He
+	for the bug report.
+
+	Add configurable caching for arbitrary RR-types.
+
+	Add --filter-rr option, to filter arbitrary RR-types.
+	--filter-rr=ANY has a special meaning: it filters the
+	answers to queries for the ANY RR-type.
+	
+	Add limits on the resources used to do DNSSEC validation.
+	DNSSEC introduces a potential CPU DoS, because a crafted domain
+	can force a validator to a large number of cryptographic
+	operations whilst attempting to do validation. When using TCP
+	transport a DNSKEY RRset contain thousands of members and any
+	RRset can have thousands of signatures. The potential number
+	of signature validations to follow the RFC for validation
+	for one RRset is the cross product of the keys and signatures,
+	so millions. In practice, the actual numbers are much lower,
+	so attacks can be mitigated by limiting the amount of
+	cryptographic "work" to a much lower amount. The actual
+	limits are number a signature validation fails per RRset(20),
+	number of signature validations and hash computations
+	per query(200), number of sub-queries  to fetch  DS and DNSKEY
+	RRsets per query(40), and the number of iterations in a
+	NSEC3 record(150). These values are sensible, but there is, as yet,
+	no standardisation on the values for a "conforming" domain, so a
+	new option --dnssec-limit is provided should they need to be altered.
+	The algorithm to validate DS records has also been altered to reduce
+	the maximum work from cross product of the number of DS records and
+	number of DNSKEYs to the cross product of the number of DS records
+	and supported DS digest types. As the number of DS digest types
+	is in single figures, this reduces the exposure.
+
+	Credit is due to Elias Heftrig, Haya Schulmann, Niklas Vogel,
+	and Michael Waidner from the German National Research Center for
+	Applied Cybersecurity ATHENE for finding this vulnerability.
+
+	CVE 2023-50387 and CVE 2023-50868 apply.
+	Note that the is a security vulnerablity only when DNSSEC validation
+	is enabled.
+	
+	Fix memory-leak when attempting to cache SRV records with zero TTL.
+	Thanks to Damian Sawicki for the bug report.
+
+	Add --max-tcp-connections option to make limit on TCP handling
+	processes configurable.  Also keep stats on how near the limit
+	we're getting, to help with tuning. Patch from Damian Sawicki.
+
+	
+version 2.89
+        Fix bug introduced in 2.88 (commit fe91134b) which can result
+	in corruption of the DNS cache internal data structures and
+	logging of "cache internal error". This has only been seen
+	in one place in the wild, and it took considerable effort
+	to even generate a test case to reproduce it, but there's
+	no way to be sure it won't strike, and the effect is to break
+	the cache badly. Installations with DNSSEC enabled are more
+	likely to see the problem, but not running DNSSEC does not
+	guarantee that it won't happen. Thanks to Timo van Roermund
+	for reporting the bug and for his great efforts in chasing
+	it down.
+
+
+version 2.88
+	Fix bug in --dynamic-host when an interface has /16 IPv4
+  	address. Thanks to Mark Dietzer for spotting this.
+
+	Add --fast-dns-retry option. This gives dnsmasq the ability
+	to originate retries for upstream DNS queries itself, rather
+	than relying on the downstream client. This is most useful
+	when doing DNSSEC over unreliable upstream networks. It comes
+	with some cost in memory usage and network bandwidth.
+
+	Add --use-stale-cache option. When set, if a DNS name exists
+	in the cache, but its time-to-live has expired, dnsmasq will
+	return the data anyway. (It attempts to refresh the
+	data with an upstream query after returning the stale data.)
+	This can improve speed and reliability. It comes
+	at the expense of sometimes returning out-of-date data and
+	less efficient cache utilisation, since old data cannot be
+	flushed when its TTL expires, so the cache becomes
+	strictly least-recently-used.
+
+	Add --port-limit option which allows tuning for robustness in
+	the face of some upstream network errors. Thanks to
+	Prashant Kumar Singh, Ravi Nagayach and Mike Danilov,
+	all of Amazon Web Services, for their efforts in developing this
+	and the stale-cache and fast-retry options.
+
+	Make --hostsdir (but NOT --dhcp-hostsdir and --dhcp-optsdir)
+	handle removal of whole files or entries within files.
+	Thanks to Dominik Derigs for the initial patches for this.
+
+	Fix bug, introduced in 2.87, which could result in DNS
+	servers being removed from the configuration when reloading
+	server configuration from DBus, or re-reading /etc/resolv.conf
+	Only servers from the same source should be replaced, but some
+	servers from other sources (i.e., hard coded or another dynamic source)
+	could mysteriously disappear. Thanks to all reporting this,
+	but especially Christopher J. Madsen who reduced the problem
+	to an easily reproducible case which saved much labour in
+	finding it.
+
+	Add --no-round-robin option.
+
+	Allow domain names as well as IP addresses when specifying
+	upstream DNS servers. There are some gotchas associated with this
+	(it will mysteriously fail to work if the dnsmasq instance
+	being started is in the path from the system resolver to the DNS),
+	and a seemingly sensible configuration like
+	--server=domain.name@1.2.3.4 is unactionable if domain.name
+	only resolves to an IPv6 address). There are, however,
+	cases where is can be useful. Thanks to Dominik Derigs for
+	the patch.
+
+	Handle DS records for unsupported crypto algorithms correctly.
+	Such a DS, as long as it is validated, should allow answers
+	in the domain it attests to be returned as unvalidated, and not
+	as a validation error.
+
+	Optimise reading large numbers of --server options. When re-reading
+	upstream servers from /etc/resolv.conf or other sources that
+	can change dnsmasq tries to avoid memory fragmentation by re-using
+	existing records that are being re-read unchanged. This involves
+	seaching all the server records for each new one installed.
+	During startup this search is pointless, and can cause long
+	start times with thousands of --server options because the work
+	needed is O(n^2). Handle this case more intelligently.
+	Thanks to Ye Zhou for spotting the problem and an initial patch.
+	
+	If we detect that a DNS reply from upstream is malformed don't
+	return it to the requestor; send a SEVFAIL rcode instead.
+
+	
 version 2.87
         Allow arbitrary prefix lengths in --rev-server and
 	--domain=....,local
@@ -5,7 +293,86 @@ version 2.87
 	Replace --address=/#/..... functionality which got
 	missed in the 2.86 domain search rewrite.
 
+	Add --nftset option, like --ipset but for the newer nftables.
+	Thanks to Chen Zhenge for the patch.
 	
+	Add --filter-A and --filter-AAAA options, to remove IPv4 or IPv6
+	addresses from DNS answers.
+
+	Fix crash doing netbooting when --port is set to zero
+	to disable the DNS server. Thanks to Drexl Johannes
+	for the bug report.
+
+	Generalise --dhcp-relay. Sending via broadcast/multicast is
+	now supported for both IPv4 and IPv6 and the configuration
+	syntax made easier (but backwards compatible).
+	
+	Add snooping of IPv6 prefix-delegations to the DHCP-relay system.
+
+	Finesse parsing of --dhcp-remoteid and --dhcp-subscrid. To be treated
+	as hex, the pattern must consist of only hex digits AND contain
+	at least one ':'. Thanks to Bengt-Erik Sandstrom who tripped
+	over a pattern consisting of a decimal number which was interpreted
+	surprisingly.
+
+	Include client address in TFTP file-not-found error reports.
+	Thanks to Stefan Rink for the initial patch, which has been
+	re-worked by me (srk). All bugs mine.
+
+	Note in manpage the change in behaviour of -address. This behaviour
+	actually changed in v2.86, but was undocumented there. From 2.86 on,
+	(eg) --address=/example.com/1.2.3.4 ONLY applies to A queries. All other
+	types of query will be sent upstream. Pre 2.86, that would catch the
+	whole example.com domain and queries for other types would get
+	a local NODATA answer. The pre-2.86 behaviour is still available,
+	by configuring --address=/example.com/1.2.3.4 --local=/example.com/
+
+        Fix problem with binding DHCP sockets to an individual interface.
+	Despite the fact that the system call tales the interface _name_ as
+	a parameter, it actually, binds the socket to interface _index_.
+	Deleting the interface and creating a new one with the same name
+	leaves the socket bound to the old index. (Creating new sockets
+	always allocates a fresh index, they are not reused). We now
+	take this behaviour into account and keep up with changing indexes.
+
+	Add --conf-script configuration option.
+
+	Enhance --domain to accept, for instance,
+	--domain=net2.thekelleys.org.uk,eth2 so that hosts get a domain
+	which relects the interface they are attached to in a way which
+	doesn't require hard-coding addresses. Thanks to Sten Spans for
+	the idea.
+
+	Fix write-after-free error in DHCPv6 server code.
+	CVE-2022-0934 refers.
+	
+	Add the ability to specify destination port in
+	DHCP-relay mode. This change also removes a previous bug
+	where --dhcp-alternate-port would affect the port used
+	to relay _to_ as well as the port being listened on.
+	The new feature allows configuration to provide bug-for-bug
+	compatibility, if required. Thanks to Damian Kaczkowski 
+	for the feature suggestion.
+
+	Bound the value of UDP packet size in the EDNS0 header of
+	forwarded queries to the configured or default value of
+	edns-packet-max. There's no point letting a client set a larger
+	value if we're unable to return the answer. Thanks to Bertie
+	Taylor for pointing out the problem and supplying the patch.
+	
+	Fix problem with the configuration
+	
+	--server=/some.domain/# --address=/#/<ip> --server=<server_ip>
+
+	This would return <ip> for queries in some.domain, rather than
+	forwarding the query via the default server.
+
+	Tweak DHCPv6 relay code so that packets relayed towards a server
+	have source address on the server-facing network, not the
+	client facing network. Thanks to Luis Thomas for spotting this
+	and initial patch.
+
+
 version 2.86
 	Handle DHCPREBIND requests in the DHCPv6 server code.
 	Thanks to Aichun Li for spotting this omission, and the initial
@@ -99,6 +466,9 @@ version 2.86
 	files within that directory are read (alphabetical order
 	of filename). Thanks to Ed Wildgoose for the initial patch
 	and motivation for this.
+
+	Allow adding IP address to nftables set in addition to
+	ipset.
 
 	
 version 2.85
@@ -1625,7 +1995,7 @@ version 2.61
 
 	Set the environment variable DNSMASQ_LOG_DHCP when running
 	the script id --log-dhcp is in effect, so that script can
-	taylor their logging verbosity. Suggestion from Malte
+	tailor their logging verbosity. Suggestion from Malte
 	Forkel.
 
 	Arrange that addresses specified with --listen-address
