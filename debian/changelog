@@ -1,3 +1,83 @@
+dnsmasq (2.92-3) unstable; urgency=medium
+
+  * d/t/functions:
+    - Drop delays and rework code to debug CI failures.
+    - Update DNS related tests to deal with dhcpcd specifics.
+
+ -- Sven Geuer <sge@debian.org>  Tue, 24 Feb 2026 15:53:14 +0100
+
+dnsmasq (2.92-2) unstable; urgency=medium
+
+  * d/dnsmasq-base.postrm: Drop deleting dnsmasq user.
+  * d/dnsmasq-base*.post*: Stop managing directory in /run.
+    - dnsmasq-base.postrm: Removed
+    - dnsmasq-base-lua.postrm: Removed
+    - dnsmasq-base.postinst: Updated
+  * Configure dnsmasq user per sysusers.d config file.
+    - d/dnsmasq-base*.sysuser: Add these files.
+    - dnsmasq-base*.postinst: Drop these files.
+    - d/control: Update Build-Depends and Depends fields.
+  * Thanks to Luca Boccassi for providing patches to the three issues above
+    (Closes: #1128117).
+  * d/dnsmasq*.install: Remove leading '/' from target paths.
+  * d/control:
+    - Drop kfreebsd-related Build-Dependency.
+      kfreebsd-any is not recognized as valid architecture anymore.
+    - Drop 'Priority: optional'.
+    - Drop unnecessary greater-than versioned build-dependencies.
+    - Drop unnecessary older-than versioned dependencies.
+  * d/u/metadate: Drop Contact field, cme reports it as being deprecated.
+  * Apply 'wrap-and-sort -at', excluding d/dnsmasq-base-lua.maintscript.
+
+ -- Sven Geuer <sge@debian.org>  Mon, 23 Feb 2026 18:03:31 +0100
+
+dnsmasq (2.92-1+exp1) unstable; urgency=medium
+
+  * d/t/functions: Add delays and code to debug CI failures.
+
+ -- Sven Geuer <sge@debian.org>  Mon, 23 Feb 2026 17:27:55 +0100
+
+dnsmasq (2.92-1) unstable; urgency=medium
+
+  * d/t/functions:
+    - Fix a typo.
+    - In function check_utils, wait 1s before checking for cleared lease file.
+      This measure should avoid occasional test failures.
+  * Upload to unstable.
+
+ -- Sven Geuer <sge@debian.org>  Sun, 18 Jan 2026 17:01:16 +0100
+
+dnsmasq (2.92-1~exp1) experimental; urgency=medium
+
+  * New upstream version 2.92
+  * d/p/*: Drop work-around-bug-1122015.patch, the bug has been fixed.
+  * d/control: Bump Standards-Version to 4.7.3.
+  * d/copyright: Bump upstream and packaging copyright years.
+
+ -- Sven Geuer <sge@debian.org>  Fri, 16 Jan 2026 20:07:33 +0100
+
+dnsmasq (2.92~rc3-1) unstable; urgency=medium
+
+  * New upstream version 2.92~rc3
+  * d/p/*:
+    - Adapt patches to new upstream release.
+    - Add work-around-bug-1122015.patch fixing temporary problem with
+      systemd integration test.
+
+ -- Sven Geuer <sge@debian.org>  Sun, 07 Dec 2025 20:12:47 +0100
+
+dnsmasq (2.92~rc1-1) unstable; urgency=medium
+
+  * New upstream version 2.92~rc1
+  * d/p/*:
+    - Adapt eliminate-privacy-breaches.patch to new upstream version.
+    - Add en-manpage.patch fixing typos reported by lintian.
+    - Add sv-manpage.patch fixing lintian warning and a typo.
+  * d/watch: Update watch file to version 5 format.
+  * d/control: Drop 'Rules-Requires-Root: no', it's the default now.
+
+ -- Sven Geuer <sge@debian.org>  Thu, 04 Dec 2025 19:02:47 +0100
+
 dnsmasq (2.91-1) unstable; urgency=medium
 
   * New upstream version 2.91
