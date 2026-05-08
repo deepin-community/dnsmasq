@@ -1,3 +1,11 @@
+dnsmasq (2.92-4deepin1) unstable; urgency=medium
+
+  * Fix systemd-sysusers unknown modifier 'u!' error. Change 'u!' to
+    'u' in dnsmasq-base.sysusers to fix installation failure on deepin
+    systems where systemd-sysusers does not support the '!' modifier.
+
+ -- lichenggang <lichenggang@uniontech.com>  Fri, 08 May 2026 10:53:17 +0800
+
 dnsmasq (2.92-4) unstable; urgency=medium
 
   * d/p/*: CVE-2026-6507: Add patch CVE-2026-6507.patch (Closes: #1134264).
