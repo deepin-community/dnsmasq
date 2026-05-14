@@ -1,10 +1,15 @@
-dnsmasq (2.92-4deepin1) unstable; urgency=medium
+dnsmasq (2.92-5) unstable; urgency=medium
 
-  * Fix systemd-sysusers unknown modifier 'u!' error. Change 'u!' to
-    'u' in dnsmasq-base.sysusers to fix installation failure on deepin
-    systems where systemd-sysusers does not support the '!' modifier.
+  * d/p/*:
+    - CVE-2026-2291.patch: Fix buffer overflow in struct bigname.
+    - CVE-2026-4890.patch: Fix NSEC bitmap parsing infinite loop.
+    - CVE-2026-4891.patch: Verify rdlen field in RRSIG packets.
+    - CVE-2026-4892.patch: Fix buffer overflow in helper.c with large CLIDs.
+    - CVE-2026-4893.patch: Fix broken client subnet validation.
+    - CVE-2026-5172.patch: Fix buffer overflow vulnerability in
+      extract_addresses().
 
- -- lichenggang <lichenggang@uniontech.com>  Fri, 08 May 2026 10:53:17 +0800
+ -- Sven Geuer <sge@debian.org>  Thu, 07 May 2026 20:16:52 +0200
 
 dnsmasq (2.92-4) unstable; urgency=medium
 
